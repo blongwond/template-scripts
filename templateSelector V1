@@ -1,0 +1,637 @@
+//--------------------------------------------------------------------------------------------
+// templateSelector() returns 4 main functions accessed via dot notation by the client spreadsheet.
+// 1. setCampaigns() - used to set the campaign types in row 2 dropdown of the instructions sheet.
+// 2. setfocus() - used to set the campaign focus in row 3 dropdown of the instructions sheet.
+// 3. getCampaign() - used to fetch the campaign from a document based on the campaign and focus
+// selected in the dropdown menus on row 2 & 3 of the instructions sheet.
+// 4. buildCampaigns() - used to replace client & focus values, filter campaigns and ad groups and
+// create export sheets of the campaigns for the user to download as csv files.
+//--------------------------------------------------------------------------------------------
+
+function templateSelector() {
+
+  class section {
+
+		constructor(start, end) {
+
+			this.start = start;
+
+			this.end = end;
+
+		};
+
+	};
+
+  //--------------------------------------------------------------------------------------------
+  // masterFolder is the ID of the folder containing all available campaigns and focuses.
+  // documentProperties is used to access local, property variables.
+  // ssApp is the SpreadsheetApp since it's used multiple times in the code.
+  // ss is the active spreadsheet.
+  // focusSection is the range on the instructions sheet that contains focus data.
+  // campaignSection is the range on the instructions sheet that contains campaign data.
+  // adGroupSection is the range on the instructions sheet that contains adGroup data.
+  // focusVariables are the focus placeholder text that will be replaced.
+  // sheets is all sheets.
+  // instructions is the instruction sheet.
+  // iLastRow is the last row with text on the instructions sheet.
+  // campaign is defined by what's selected from the dropdown on the instructions sheet.
+  // focus is defined by what's selected from the dropdown on the instructions sheet.
+  //--------------------------------------------------------------------------------------------
+
+  const masterFolder = DriveApp.getFolderById('15PHpTCgDCGYaGoCfMEl7Uv3QZ7sF5Rxa');
+
+  const documentProperties = PropertiesService.getDocumentProperties();
+
+  const ssApp = SpreadsheetApp
+
+  const ss = ssApp.getActiveSpreadsheet();
+
+  let focusSection = JSON.parse(documentProperties.getProperty("focusSection"))
+
+	let campaignSection = JSON.parse(documentProperties.getProperty("campaignSection"))
+
+	let adGroupSection = JSON.parse(documentProperties.getProperty("adGroupSection"))
+
+	let focusVariables = JSON.parse(documentProperties.getProperty("focusVariables"))
+  
+	let sheets = ss.getSheets();
+
+	let instructions = ss.getSheetByName('Instructions');
+
+  let iLastRow = instructions.getLastRow();
+  
+  let campaign = instructions.getRange('A2:B2').getValue();
+  
+  let focus = instructions.getRange('A3:B3').getValue();
+
+  //--------------------------------------------------------------------------------------------
+  // getCampaign copies tabs from a template spreadsheet to the client sheet.
+  // templateURL is the template file we want to use based on the campaign & focus selected.
+  // template uses templateURL to open that file.
+  // templateSheets gets sheets from that file.
+  // client is the spreadsheet to copy to (your client spreadsheet).
+  // toDelete is all the sheets of the client spreadsheet to delete except the instructions sheet.
+  // Delete all sheets marked toDelete in client.
+  // Change instructions sheet name to 'info' in client.
+  // clientInfo() is that new sheet called 'info'.
+  // Loop through all the templateSheets and copy over to client.
+  // Set Instructions to = the sheet named 'Instructions' in client.
+  // Copy the client info section from 'info' sheet to the 'instructions' sheet.
+  // This preserves any prewritten client information.
+  // Delete the info sheet once client info is copied over.
+  // scan() to get focus, campaign and ad group ranges and focus variables and save them as
+  // document properties to the spreadsheet. They will be used by buildCampaigns later.
+  //--------------------------------------------------------------------------------------------
+  
+  function getCampaign() {                                       
+  
+    let templateURL = masterFolder.getFoldersByName(campaign).next().getFilesByName(focus).next().getUrl();
+  
+    let template = ssApp.openByUrl(templateURL);
+
+    let templateSheets = template.getSheets();
+
+    let client = ssApp.openByUrl(ss.getUrl());
+
+    let toDelete = sheets.filter(sheet => sheet.getName() !== 'Instructions');
+
+    toDelete.forEach(sheet => ss.deleteSheet(sheet));
+  
+    instructions.setName('Info');
+  
+    let clientInfo = ss.getSheetByName('Info');
+  
+    for (i = 0; i < templateSheets.length; i++) {
+  
+      let name = templateSheets[i].getName()
+  
+      templateSheets[i].copyTo(client).activate();
+
+      console.log('activating ' + name)
+  
+      client.getActiveSheet().setName(name);
+  
+    };
+  
+    instructions = ss.getSheetByName('Instructions');
+  
+    clientInfo.getRange('A1:B13').copyTo(instructions.getRange('A1:B13'));
+  
+    ss.deleteSheet(clientInfo);
+
+    getSections();
+  
+  };
+
+  //--------------------------------------------------------------------------------------------
+	// getSections() iterates through rows on the instructions sheet and identifies headers.
+	// Headers will be 'Campaigns' and 'Ad Groups.
+	// Their row #'s will be used to set ch and agh.
+  // focusSection, campaignSection and adGroupSection create a new sections which are ranges with
+  // the help of ch and agh.
+  // Declare focusVariables as an empty array.
+  // Loop through the focusSection start and end to push variable placeholders into the array.
+  // Set document property variables for focusSection, campaignSection, adGroupSection and focusVariable.
+  // These will be used by buildCampaigns().
+  // scan() ensures that each time getCampaign runs, we have the appropriate section ranges and focus
+  // variables defnined so buildCampaigns() can replace and filter correctly.
+	//--------------------------------------------------------------------------------------------
+
+  function getSections() {
+
+    instructions = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Instructions');
+
+    iLastRow = instructions.getLastRow();
+
+    let ch = 0
+
+    let agh = 0
+
+    for (let row = 1; row <= iLastRow; row++) {
+
+    	let cellValue = instructions.getRange('A' + row).getValue();
+
+      if (cellValue.toString().includes('Campaigns')) {
+
+  			ch = row
+          
+      } else if (cellValue.toString().includes('Ad Groups')) {
+
+    		agh = row
+			
+  		};
+
+  	};
+
+    if (ch === 0) {
+
+      let focusSection = new section(15, agh - 1)
+
+      let campaignSection = new section(ch, agh - 1)
+
+      let adGroupSection = new section(agh + 1, iLastRow)
+
+      let focusVariables = [];
+
+      for (row = focusSection.start; row <= focusSection.end; row++ ) {
+
+        let focusVariable = instructions.getRange('B' + row).getValue();
+
+        focusVariables.push(focusVariable);
+
+      };
+
+      setPropertyVariable("focusSection", focusSection);
+
+      setPropertyVariable("campaignSection", campaignSection);
+
+      setPropertyVariable("adGroupSection", adGroupSection);
+
+      setPropertyVariable("focusVariables", focusVariables);
+
+    } else {
+
+      let focusSection = new section(15, ch - 1)
+
+      let campaignSection = new section(ch + 1, agh - 1)
+
+      let adGroupSection = new section(agh + 1, iLastRow)
+
+      let focusVariables = [];
+
+      for (row = focusSection.start; row <= focusSection.end; row++ ) {
+
+        let focusVariable = instructions.getRange('B' + row).getValue();
+
+        focusVariables.push(focusVariable);
+
+      };
+
+      setPropertyVariable("focusSection", focusSection);
+
+      setPropertyVariable("campaignSection", campaignSection);
+
+      setPropertyVariable("adGroupSection", adGroupSection);
+
+      setPropertyVariable("focusVariables", focusVariables);
+
+    }
+
+  };
+
+  //--------------------------------------------------------------------------------------------
+	// setPropertyVariable() saves a variable to the document property.
+	// Declare storedString as the variable name (this is the document property variable).
+	// If the storedString doesn't already exist create it.
+	// If it does exist, edit the current one to update it with current campaign data.
+  //--------------------------------------------------------------------------------------------
+
+	function setPropertyVariable (variableName, variable) {
+
+    let storedString = documentProperties.getProperty(variableName);
+	
+		if (storedString === null) {
+	  
+		  documentProperties.setProperty(variableName, JSON.stringify(variable));
+	
+		} else {
+	
+		  let storedArray = JSON.parse(storedString);
+	
+		  storedArray = variable;
+	
+		  documentProperties.setProperty(variableName, JSON.stringify(storedArray));
+	
+		};
+	
+	};
+    
+	//--------------------------------------------------------------------------------------------
+  // setCampaigns() uses campFocusArray and setDataValidation to create a dropdown menu of campaigns.
+  // Declare prevCampaignValue as the current campaign selected on the instructions sheet.
+  // Declare campaignTemplates as all the folders within the master folder.
+  // Declare campaignValues as an empty array.
+  // Execute campFocusArray to push folder names into the campaignValues array.
+  // Execute setDataValidation to create a dropdown menu of campaignValues array and set the value
+  // as prevCampaignValue.
+  //-------------------------------------------------------------------------------------------- 
+  
+  function setCampaigns () {   
+
+    let prevCampaignValue = instructions.getRange('A2:B2').getValue();                                                    
+    
+    let campaignTemplates = masterFolder.getFolders();
+  
+    let campaignValues = [];
+  
+    campaignFocusArray (campaignTemplates, campaignValues);
+
+    if (prevCampaignValue.includes('Select')) {
+  
+      setDataValidation (campaignValues,'A2:B2',campaignValues[0]);
+    
+    } else {
+
+      setDataValidation (campaignValues,'A2:B2',prevCampaignValue);
+
+    }
+  
+  };
+  
+	//--------------------------------------------------------------------------------------------
+  // setFocus() uses campFocusArray and setDataValidation to create a dropdown menu of focuses.
+  // Declare focusTemplates as all the files within the selected campaign folder.
+  // Declare focusValues as an empty array.
+  // Push 'Select ' + campaign + ' Focus' into the array.
+  // Execute campFocusArray to push folder names into the focusValues array.
+  // Execute setDataValidation to create a dropdown menu of focusValues array and set the value
+  // as 'Select ' + campaign + ' Focus'.
+  //---------------------------------------------------------------------------------------------  
+  
+  function setFocus () {                                                           
+  
+    let focusTemplates = masterFolder.getFoldersByName(campaign).next().getFiles();
+  
+    let focusValues = [];
+
+    focusValues.push('Select ' + campaign + ' Focus');
+  
+    campaignFocusArray (focusTemplates, focusValues);
+  
+    setDataValidation (focusValues,'A3:B3', 'Select ' + campaign + ' Focus');
+  
+  };
+  
+	//--------------------------------------------------------------------------------------------  
+  // campFocusArray() iterates through files or folders, gets their name and pushes it to an array.
+	//-------------------------------------------------------------------------------------------- 
+  
+  function campaignFocusArray (iterator, array) {
+  
+    while (iterator.hasNext()) {
+  
+      f = iterator.next();
+  
+      fName = f.getName();
+  
+      array.push(fName)
+  
+    };
+  
+  };
+  
+	//-------------------------------------------------------------------------------------------- 
+  // setDataValidation() sets data validation criteria to a specific range and sets the value.
+	//-------------------------------------------------------------------------------------------- 
+  
+  function setDataValidation (array,range,value) {
+  
+    instructions.getRange(range).setDataValidation(ssApp.newDataValidation().setAllowInvalid(false).requireValueInList(array,true).build());
+  
+    instructions.getRange(range).setValue(value);
+  
+  };
+
+  //--------------------------------------------------------------------------------------------
+  // buildCampaigns() will dynamically find/replace and filter campaigns/ad groups.
+  // clientVariables is the doctor and practice placeholder's to replace.
+  // tabs are all the sheets in the spreadsheet to replace values on
+  // ranges are the ranges on those tabs to replace the values on.
+  // First, buildCampaigns() loops through all tabs and uses sectionReplace() and replaceInSheet()
+  // to replace placeholder variabls with client information.
+  // Next, it scans the instructions sheet to get campaign and ad groups to use as filter
+  // criteria and implements a filter on all sheets except the instructions sheet.
+  // Lastly, it duplicates the filtered tabs, labels them 'export' in order to prep only the
+  // filtered data for download, then a ui message is displayed to identify ads over the character limit.
+  //--------------------------------------------------------------------------------------------
+
+  function buildCampaigns() {
+
+    let clientVariables = ['"FIRST"','"LAST"','"PRACTICE"', '"STREET#"', '"STREET"', '"CITY"', '"STATE"', '"ST"', '"ZIP"']
+        
+    let tabs = ['Instructions', 'Write Ads Here', 'Campaigns', 'Ad Groups', 'Ads', 'Ads', 'Keywords', 'Negative Keywords'];
+
+    let ranges = ['A1:B', 'A1:D', 'H1:H', 'A1:B', 'A1:B', 'BN1:BO', 'A1:C', 'A1:C'];
+
+    console.log(focusSection)
+    console.log(campaignSection)
+    console.log(adGroupSection)
+    console.log(focusVariables)
+
+    //------------------------------------------------------------------------------------------
+    // If statement is checking for export sheets by looking for a sheet called 'Export Campaigns'
+    // If that sheet exists, delete all sheets that include 'Export' in their name.
+    // Then unhide any hidden sheets.
+    // If no 'Export' sheets exist, move on.
+    // This is necessary so that a user can make changes to an instructions sheet where buildCampaigns()
+    // has already run, and then rerun the function and have their changes reflected. (ex: unchecking some
+    // ad groups and rerunning buildCampaigns())
+    //------------------------------------------------------------------------------------------
+
+    if (ss.getSheetByName('Export Campaigns') != null) {
+
+      let toDelete = sheets.filter(sheet => sheet.getName().includes('Export'));
+
+      toDelete.forEach(sheet => ss.deleteSheet(sheet));
+
+      sheets.forEach(sheet => {
+
+        if (sheet.isSheetHidden()) {
+
+          sheet.showSheet();
+
+        }
+
+      });
+
+    }
+
+    //------------------------------------------------------------------------------------------
+    // Loop through the tabs array and replace values.
+    // Declare tab as the current sheet.
+    // Declare the last row of the tab.
+    // Declare the range to replace values.
+    // Get values from that range.
+    // Execute sectionReplace() to replace client data and focus data.
+    // Set the values that were replaced.
+    //------------------------------------------------------------------------------------------
+
+    for (let i = 0; i < tabs.length; i++) {
+
+      let tab = ss.getSheetByName(tabs[i]);
+
+      let lastRow = tab.getLastRow();
+
+      let range = tab.getRange(ranges[i] + lastRow);
+
+      let values = range.getValues();
+
+      sectionReplace(values, clientVariables, 5, 13, instructions);
+
+      sectionReplace(values, focusVariables, focusSection.start, focusSection.end, instructions);
+
+      range.setValues(values);
+
+    }
+
+    //--------------------------------------------------------------------------------------------
+    // sectionReplace() replaces data from sections on the instructions sheet across a set of values.
+    // Replace_with are the replacement values to use grabbed from the instructions sheet.
+    // Loop through the all the values to be replaced.
+    // Use replaceInSheet() to replace variables (to_replace) in vlaues with (replace_with).
+    //--------------------------------------------------------------------------------------------
+
+    function sectionReplace(values, variables, rowStart, rowEnd, instructions) {
+
+      let replace_with = instructions.getRange('B' + rowStart + ":B" + rowEnd).getValues();
+
+      for (let j = 0; j <= replace_with.length; j++) {
+
+        replaceInSheet(values, variables[j], replace_with[j]);
+
+      }
+
+    }
+    
+    //--------------------------------------------------------------------------------------------
+    // replaceInSheet() replaces data accross a set of values
+    //--------------------------------------------------------------------------------------------
+    
+    function replaceInSheet(values, to_replace, replace_with) {
+
+      values.forEach((row, rowIndex) => {
+
+        values[rowIndex] = row.map(original_value => {
+
+          let stringValue = original_value.toString();
+
+          // Check if stringValue actually contains to_replace before replacing
+
+          if (stringValue.includes(to_replace)) {
+
+            return stringValue.replace(to_replace, replace_with);
+
+          }
+
+          return original_value;
+
+        });
+
+      });
+
+    }
+    
+    //--------------------------------------------------------------------------------------------
+    // The following code builds filter criteria and uses them to set campaign and ad group
+    // filters across the spreadhseet tabs.
+    // Declare hiddenCampaigns and hiddenAdGroups as empty arrays.
+    // If a campaign section does exist for this template, get campaigns to hide in filter.
+    // Execute hideAssets to get ad groups to hide in filter.
+    // Declare the campaignCriteria and adGroupCriteria (hidden values in filters).
+    // Declare sheets toInclude in setting the filter (all except instructions sheet).
+    // For each sheet, set campaign and ad group filters.
+    //--------------------------------------------------------------------------------------------
+    
+    let hiddenCampaigns = []
+    
+    let hiddenAdGroups = []
+    
+    if (campaignSection.start !== 0) {
+    
+      hideAssets(hiddenCampaigns, campaignSection.start, campaignSection.end);
+    
+    };
+    
+    hideAssets(hiddenAdGroups, adGroupSection.start, adGroupSection.end);
+
+    let campaignCriteria = ssApp.newFilterCriteria().setHiddenValues(hiddenCampaigns).build();
+    
+    let adGroupCriteria = ssApp.newFilterCriteria().setHiddenValues(hiddenAdGroups).build();
+
+    sheets = ss.getSheets();
+    
+    let toInclude = sheets.filter(sheet => sheet.getName() !== 'Instructions');
+
+    toInclude.forEach(sheet => {
+
+      let sheetName = sheet.getName();
+
+      ss.getSheetByName(sheetName).getFilter().setColumnFilterCriteria(1, campaignCriteria).setColumnFilterCriteria(2, adGroupCriteria);
+
+    })
+
+    //--------------------------------------------------------------------------------------------
+    // hideAssets() scans the insructions sheet and pushed unchecked values into an array
+    //--------------------------------------------------------------------------------------------
+    
+    function hideAssets (array, rowStart, rowEnd) {
+    
+      for (let row = rowStart; row <= rowEnd; row++) {
+    
+        let filterName = getValue('Instructions', 'A' + row)
+    
+        let isChecked = getValue('Instructions', 'B' + row)
+    
+        if (!isChecked) {
+    
+          array.push(filterName);
+    
+        };
+    
+      };
+    
+    };
+
+    //--------------------------------------------------------------------------------------------
+    // getValue() gets a value from a specific sheet
+    //--------------------------------------------------------------------------------------------
+
+    function getValue(sheetName,cell) {
+    
+      let range = ss.getSheetByName(sheetName).getRange(cell);
+    
+      let value = range.getValue();
+    
+      return value
+    
+    };
+
+    //--------------------------------------------------------------------------------------------
+    // The code below duplicates filtered sheets, renames them with 'Export' and then hides the
+    // original sheets.
+    // toInclude is all sheets except 'Instructions' and 'Write Ads Here'.
+    // Loop through toInclude to create 'Export' sheets.
+    // Declare sheetName and get the name of the current sheet.
+    // Declare newSheet and copy the current sheet to the spreadsheet
+    // Set the name of the newSheet as 'Export' + sheetName.
+    // Declare the entire range of the newSheet and clear it.
+    // Copy the (filtered) content from the original sheet to the newSheet.
+    // Hide the original sheet.
+    // Filtered content has to be copied this way in order to export only filtered rows in
+    // the final csv files.
+    // Lastly, make the instructions sheet the active sheet.
+    //--------------------------------------------------------------------------------------------
+
+    toInclude = sheets.filter(sheet => sheet.getName() !== 'Instructions' && sheet.getName() !== 'Write Ads Here');
+ 
+    toInclude.forEach(sheet => {
+
+      let sheetName = sheet.getName();
+
+      let newSheet = sheet.copyTo(ss);
+
+      newSheet.setName('Export ' + sheetName);
+
+      let range = newSheet.getRange('A:BO');
+
+      newSheet.clear();
+
+      sheet.getRange('A:BO').copyTo(range);
+
+      sheet.hideSheet();
+
+    })
+    
+    ss.getSheetByName('Instructions').activate();
+
+    //--------------------------------------------------------------------------------------------
+    // The following code scans for cells over the character limit and displays a UI message for
+    // the user.
+    // Declare lengthGuard as column E on the 'Write Ads Here' tab.
+    // Declare is_over_char as false.
+    // Decare over_color as '#f4c7c3'.
+    // For all values in lengthGuard (all the len function cells), get the background and check it.
+    // If background matches the over_color and the row is not hidden by filter change
+    // is_over_char to true.
+    // If is_over_char is true, display a ui message notifying the user of ads over the limit, or else
+    // let the user know all ads are good to go.
+    //--------------------------------------------------------------------------------------------
+    
+    const lengthGuard = ss.getSheetByName('Write Ads Here').getRange('E:E').getValues();
+    
+    let is_over_char = false;
+    
+    let over_color = '#f4c7c3';
+    
+    for (let i = 1; i < lengthGuard.length; i++) {
+    
+      let background = ss.getSheetByName('Write Ads Here').getRange('E' + [i]).getBackground();
+    
+      if (background === over_color && ss.getSheetByName('Write Ads Here').isRowHiddenByFilter([i]) === false ){
+    
+        is_over_char = true;
+    
+      };
+    
+    };
+    
+    if (is_over_char == true) {
+    
+      ssApp.getUi().alert('Some ads are over the character limit. Review and make edits on the Write Ads Here tab.');
+    
+    } else {
+    
+      ssApp.getUi().alert('Ads good to go! Download the export sheets.');
+    
+    };
+        
+  };
+
+  //--------------------------------------------------------------------------------------------
+  // The following functions are returned so that they can be accessed by other script projects
+  // with dot notation and the use of the libaray functionality.
+  //--------------------------------------------------------------------------------------------
+
+  return {
+
+    setCampaigns,
+
+    setFocus,
+
+    getCampaign,
+
+    buildCampaigns
+
+  };
+  
+};
